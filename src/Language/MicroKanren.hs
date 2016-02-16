@@ -99,9 +99,10 @@ put f = Program $ S.put f
 queryMapping :: Mapping
 queryMapping = (1, M.empty)
 
--- | Generate a new query variable.
+-- | Generate a new query variable.  For more examples of using
+-- 'fresh', see the test/examples functions at the end of this module.
 --
--- >>> traceAll $ \_ -> fresh >>= \x -> x === atom "22"
+-- >>> traceAll $ \_ -> fresh >>= \x -> x === Atom "22"
 -- [(2,[(1,Atom "22")])]
 fresh :: Program Term
 fresh = do
@@ -147,14 +148,14 @@ x === y = do
     un _ _ = mzero
 infixr 2 ===
 
--- | Fair conjunction.  See the docs for
+-- | Fair conjunction (the "fair" version of '>>=').  See the docs for
 -- 'Control.Monad.Logic.Class.MonadLogic' for more information.
 infixr 1 `conj`
 conj :: Program a -> Program b -> Program b
 conj a b = a >>- \_ -> b
 
--- | Fair disjunction.  See the docs for
--- 'Control.Monad.Logic.Class.MonadLogic' for more information.
+-- | Fair disjunction (the "fair" version of 'mplus').  See the docs
+-- for 'Control.Monad.Logic.Class.MonadLogic' for more information.
 infixr 0 `disj`
 disj :: Program a -> Program a -> Program a
 disj = interleave
@@ -176,7 +177,7 @@ query f = observeAll . flip S.execStateT queryMapping . runProgram $ f queryVar
 -- | Run a query, outputting the complete set of logic variable
 -- bindings for each result
 --
--- >>> traceAll $ \_ -> fresh >>= \x -> x === atom "22"
+-- >>> traceAll $ \_ -> fresh >>= \x -> x === Atom "22"
 -- [(2,[(1,Atom "22")])]
 traceAll :: (Term -> Program ()) -> [(Int, [(Int, Term)])]
 traceAll f =
@@ -192,7 +193,19 @@ trace n = take n . traceAll
 -- | Run a query, outputting the binding of the query variable for
 -- each result.
 --
--- >>> runAll $ \q -> fresh >>= \x -> q === x >> x === [Atom "22"]
+-- >>> runAll $ \q -> fresh >>= \x -> q === x >> x === Atom "22"
+-- [Atom "22"]
+--
+-- The query variable @q@ may not be bound to any real "value" but
+-- just to another logic variable (in this case @x@); when this
+-- occurs, the output will look someting like in the following
+-- example.  In situations like this, you've either forgotten some
+-- unifications or you should just count the length of the return list
+-- to see how many solutions there are.
+--
+-- >>> let test q = do { x <- fresh; q === x }
+-- >>> runAll test
+-- [Var (CV 1)]
 runAll :: (Term -> Program ()) -> [Term]
 runAll f = map (flip lookupNoLoop (Var (CV 0)) . tidy . snd) $ query f
 
@@ -227,13 +240,18 @@ conso x xs lst = lst === x ::: xs
 
 -- | The relational form of @append@/@++@.
 appendo :: Term -> Term -> Term -> Program ()
-appendo l s out = disj (nullo l `conj` s === out) $ do
-  car <- fresh
-  cdr <- fresh
-  recout <- fresh
-  (conso car cdr l `conj`
-    conso car recout out `conj`
-    appendo cdr s recout)
+appendo l s out = nullcase `disj` conscase
+  where
+    nullcase = do
+      nullo l
+      s === out
+    conscase = do
+      car <- fresh
+      cdr <- fresh
+      recout <- fresh
+      conso car cdr l
+      conso car recout out
+      appendo cdr s recout
 
 -- |
 -- > consotest q = do
@@ -244,7 +262,7 @@ appendo l s out = disj (nullo l `conj` s === out) $ do
 -- >   conso x y lst
 --
 -- >>> pretty $ runAll consotest
--- Pair (Atom "a") (Pair (Atom "b") Null)
+-- Atom "a" ::: (Atom "b" ::: Null)
 consotest :: Term -> Program ()
 consotest q = do
   x <- fresh
@@ -261,10 +279,10 @@ consotest q = do
 -- >   q === x ::: y
 --
 -- >>> pretty $ runAll appendotest
--- Pair Null (Pair (Atom "a") (Pair (Atom "b") (Pair (Atom "c") Null)))
--- Pair (Pair (Atom "a") Null) (Pair (Atom "b") (Pair (Atom "c") Null))
--- Pair (Pair (Atom "a") (Pair (Atom "b") Null)) (Pair (Atom "c") Null)
--- Pair (Pair (Atom "a") (Pair (Atom "b") (Pair (Atom "c") Null))) Null
+-- Null ::: (Atom "a" ::: (Atom "b" ::: (Atom "c" ::: Null)))
+-- (Var (CV 3) ::: Var (CV 4)) ::: (Atom "b" ::: (Atom "c" ::: Null))
+-- (Var (CV 3) ::: Var (CV 4)) ::: (Atom "c" ::: Null)
+-- (Var (CV 3) ::: Var (CV 4)) ::: Null
 appendotest :: Term -> Program ()
 appendotest q = do
   x <- fresh
@@ -284,7 +302,7 @@ appendotest q = do
 -- >     (Atom "a" ::: Atom "b" ::: z ::: Atom "d" ::: Null)
 --
 -- >>> pretty $ runAll appendotest2
--- Pair (Atom "b") (Pair (Atom "d") (Atom "c"))
+-- Atom "b" ::: (Atom "d" ::: Atom "c")
 appendotest2 :: Term -> Program ()
 appendotest2 q = do
   x <- fresh
