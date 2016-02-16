@@ -43,7 +43,6 @@ module Language.MicroKanren (
   , consotest
   , appendotest
   , appendotest2
-  , lookupNoLoop
   ) where
 
 import Prelude hiding ( lookup )
